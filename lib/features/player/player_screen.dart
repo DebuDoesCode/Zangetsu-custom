@@ -3831,10 +3831,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
         body: _loadingBackdropBody(context.l10n.loading),
       );
     }
-    if (_chosenPlayer == PlaybackPrefs.androidPlayerId &&
-        (route is NativePlayerHandoffRoute || widget.onEngineChange != null)) {
+        if (_chosenPlayer == PlaybackPrefs.androidPlayerId &&
+        ((route is EpisodePlayerRoute && route.nativeHandoff) ||
+            widget.onEngineChange != null)) {
       return const SizedBox.shrink();
-    }
+        }
     // A Watch Together join that couldn't resolve the room's source — explain
     // it clearly instead of a blank/bouncing screen.
     if (_loadError != null) {
