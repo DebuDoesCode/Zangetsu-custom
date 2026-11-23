@@ -29,7 +29,12 @@ class FeaturedBannerEdge extends StatefulWidget {
     this.onArtColor,
     this.backgroundTint,
     this.paletteLoader,
+    this.anilifeLayout = false,
   });
+
+  /// Anilife-style content block: meta row, title art, genres, dots and an
+  /// n / total counter, with the whole banner tappable instead of a button.
+  final bool anilifeLayout;
 
   final List<MediaItem> items;
   final void Function(MediaItem) onInfo;
@@ -261,6 +266,7 @@ class _FeaturedBannerEdgeState extends State<FeaturedBannerEdge>
         child: GestureDetector(
           key: const ValueKey('edgeBannerGesture'),
           behavior: HitTestBehavior.opaque,
+          onTap: widget.anilifeLayout ? () => widget.onInfo(item) : null,
           onHorizontalDragEnd: (details) {
             final velocity = details.primaryVelocity ?? 0;
             if (velocity < -80) {
@@ -320,7 +326,9 @@ class _FeaturedBannerEdgeState extends State<FeaturedBannerEdge>
                 switchOutCurve: Curves.easeIn,
                 transitionBuilder: (child, animation) =>
                     FadeTransition(opacity: animation, child: child),
-                child: Align(
+                child: widget.anilifeLayout
+                    ? _anilifeContent(item)
+                    : Align(
                   alignment: Alignment.bottomCenter,
                   key: ValueKey('edgeBannerContent-${item.id}'),
                   child: Padding(
@@ -373,6 +381,46 @@ class _FeaturedBannerEdgeState extends State<FeaturedBannerEdge>
                   ),
                 ),
               ),
+              if (widget.anilifeLayout && _pages.length > 1)
+                Positioned(
+                  right: 16,
+                  // Clears the status bar + header row + genre chips.
+                  top: MediaQuery.paddingOf(context).top + 112,
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.35),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        child: Text.rich(
+                          TextSpan(
+                            children: [
+                              TextSpan(
+                                text: '${_index + 1}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              TextSpan(
+                                text: ' / ${_pages.length}',
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.6),
+                                ),
+                              ),
+                            ],
+                          ),
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               if (_pages.length > 1)
                 Positioned(
                   left: 0,
@@ -390,9 +438,11 @@ class _FeaturedBannerEdgeState extends State<FeaturedBannerEdge>
                           width: active ? 20 : 6,
                           height: 6,
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(
-                              alpha: active ? 1 : 0.55,
-                            ),
+                            color: widget.anilifeLayout && active
+                                ? AppColors.accent
+                                : Colors.white.withValues(
+                                    alpha: active ? 1 : 0.55,
+                                  ),
                             borderRadius: BorderRadius.circular(3),
                           ),
                         ),
@@ -402,6 +452,37 @@ class _FeaturedBannerEdgeState extends State<FeaturedBannerEdge>
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Anilife-style content block: a meta row (episodes · year) over big title
+  /// art, with the genres underneath in plain sentence case. Dots + the n / N
+  /// counter are drawn by [build].
+  Widget _anilifeContent(MediaItem item) {
+    return Align(
+      alignment: Alignment.bottomCenter,
+      key: ValueKey('anilifeBannerContent-${item.id}'),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 44),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _AnilifeMetaRow(
+              metaFuture: widget.meta?.call(item),
+              reading: widget.reading,
+            ),
+            const SizedBox(height: 14),
+            BannerTitleLogo(
+              item: item,
+              maxHeight: 96,
+              maxWidthFactor: 0.86,
+              fontSize: 32,
+            ),
+            const SizedBox(height: 12),
+            _AnilifeGenreLine(metaFuture: widget.meta?.call(item)),
+          ],
         ),
       ),
     );
@@ -453,6 +534,102 @@ class _FeaturedBannerEdgeState extends State<FeaturedBannerEdge>
             ),
           ),
       ],
+    );
+  }
+}
+
+/// "TV  •  ▣ 8  •  2024" — whatever [HeroMeta] has, dot-separated, white.
+class _AnilifeMetaRow extends StatelessWidget {
+  const _AnilifeMetaRow({required this.metaFuture, required this.reading});
+
+  final Future<HeroMeta?>? metaFuture;
+  final bool reading;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 20,
+      child: FutureBuilder<HeroMeta?>(
+        future: metaFuture,
+        builder: (context, snap) {
+          final m = snap.data;
+          if (m == null) return const SizedBox.shrink();
+          final style = TextStyle(
+            color: Colors.white.withValues(alpha: 0.9),
+            fontSize: 13.5,
+            fontWeight: FontWeight.w500,
+          );
+          final items = <Widget>[
+            if (m.episodeCount > 0)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    reading ? Icons.menu_book_rounded : Icons.closed_caption,
+                    size: 17,
+                    color: Colors.white.withValues(alpha: 0.9),
+                  ),
+                  const SizedBox(width: 5),
+                  Text('${m.episodeCount}', style: style),
+                ],
+              ),
+            if (m.year != null && m.year!.isNotEmpty)
+              Text(m.year!, style: style),
+          ];
+          if (items.isEmpty) return const SizedBox.shrink();
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (var i = 0; i < items.length; i++) ...[
+                if (i > 0)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: Container(
+                      width: 4,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.5),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                items[i],
+              ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// "Action · Adventure · Comedy" in sentence case under the title art.
+class _AnilifeGenreLine extends StatelessWidget {
+  const _AnilifeGenreLine({required this.metaFuture});
+
+  final Future<HeroMeta?>? metaFuture;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 22,
+      child: FutureBuilder<HeroMeta?>(
+        future: metaFuture,
+        builder: (context, snap) {
+          final genres = snap.data?.genres.take(3).toList() ?? const [];
+          if (genres.isEmpty) return const SizedBox.shrink();
+          return Text(
+            genres.join('  ·  '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.88),
+              fontSize: 16,
+              letterSpacing: 0.4,
+            ),
+          );
+        },
+      ),
     );
   }
 }

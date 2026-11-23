@@ -32,10 +32,16 @@ class BannerStyle {
   static const String defaultId = edgeId;
   static const String panelsId = 'panels';
   static const String edgeId = 'edge';
+  static const String anilifeId = 'anilife';
 
   /// [defaultId] first, so the picker leads with what a fresh install wears.
   static const List<BannerStyleOption> options = [
     BannerStyleOption(id: edgeId, label: 'Edge', blurb: 'Full-width artwork'),
+    BannerStyleOption(
+      id: anilifeId,
+      label: 'Anilife',
+      blurb: 'Genre chips, meta row, counter',
+    ),
     BannerStyleOption(id: 'card', label: 'Card', blurb: 'Inset artwork card'),
     BannerStyleOption(id: panelsId, label: 'Panels', blurb: 'A manga spread'),
   ];
