@@ -97,6 +97,7 @@ import '../../core/zmode/zmode_ids.dart';
 import 'streaming_services_row.dart';
 import 'cubit/home_cubit.dart';
 import 'cubit/home_rows_composer.dart';
+import 'genres_screen.dart';
 import 'home_screen_tv.dart';
 import 'search_screen.dart';
 import 'cubit/tracker_home_rows.dart' show releasedCount;
@@ -964,6 +965,14 @@ class _HomeViewState extends State<_HomeView> {
     );
   }
 
+  /// Anilife-style genre chips → the existing Genres browser. (GenresScreen
+  /// takes no genre argument yet, so every chip opens the same screen.)
+  void _openGenres(String? genre) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const GenresScreen()),
+    );
+  }
+
   /// Clears the adaptive tint after the current frame — [bannerBuilder] runs
   /// during build, so the notifier must not be written synchronously there.
   void _clearHeroTintSoon() {
@@ -1018,8 +1027,10 @@ class _HomeViewState extends State<_HomeView> {
           onToggleList: toggleList,
           meta: _heroMeta,
         );
+      case BannerStyle.anilifeId:
       case BannerStyle.edgeId:
         return FeaturedBannerEdge(
+          anilifeLayout: bannerId == BannerStyle.anilifeId,
           items: heroItems,
           reading: reading,
           isActive: isActive,
@@ -1629,6 +1640,7 @@ class _HomeViewState extends State<_HomeView> {
                                   ),
                                 );
                               },
+                              onGenreTap: _openGenres,
                               headerBuilder: (edgeBanner) =>
                                   _buildHeader(edgeBanner: edgeBanner),
                             );

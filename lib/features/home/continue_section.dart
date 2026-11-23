@@ -8,6 +8,8 @@ import '../../core/mode/content_mode_cubit.dart';
 import '../../core/models/provider_info.dart';
 import '../../core/playback/watch_history.dart';
 import '../../core/reading/read_history.dart';
+import '../../core/ui/anilife_continue_card.dart';
+import '../../core/ui/banner_style.dart';
 import '../../core/ui/content_row.dart';
 import '../../core/ui/continue_card.dart';
 import '../../core/ui/disintegrating_poster.dart';
@@ -215,7 +217,9 @@ class ContinueWatchingRow extends StatelessWidget {
         title: 'Continue Watching',
         // Compact 16:9 landscape card — same design, just smaller/tighter.
         itemWidth: 190,
-        itemHeight: 107,
+        itemHeight: BannerStyle.current.value == BannerStyle.anilifeId
+            ? 107 + AnilifeContinueCard.captionHeight
+            : 107,
         onSeeAll: onSeeAll,
         itemCount: history.length,
         itemKeys: [for (final e in history) watchGhostKey(e)],
@@ -223,7 +227,21 @@ class ContinueWatchingRow extends StatelessWidget {
           final e = history[i];
           final key = watchGhostKey(e);
           final exiting = exitingIds.contains(key) && onExited != null;
-          Widget card = ContinueCard(
+          final anilife = BannerStyle.current.value == BannerStyle.anilifeId;
+          Widget card = anilife
+              ? AnilifeContinueCard(
+                  title: e.showTitle,
+                  imageUrl: e.thumbnail ?? e.cover,
+                  headers: e.coverHeaders,
+                  progress: e.progress,
+                  cellWidth: 190,
+                  subtitle: e.episodeNumber != null
+                      ? 'Episode ${e.episodeNumber!.toInt()}'
+                      : null,
+                  onTap: () => onResume(e),
+                  onInfo: () => onLongPress(e),
+                )
+              : ContinueCard(
             title: e.showTitle,
             // Prefer the landscape episode thumbnail; fall back to the
             // portrait cover (older entries / sources without them).

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/ui/banner_style.dart';
+import '../../core/ui/anilife_genre_chips.dart';
 import '../../core/ui/featured_carousel.dart' show heroHeightFor;
 
 /// Keeps the selected header layout while banner artwork is still loading.
@@ -14,6 +15,7 @@ class HomeBannerHeader extends StatelessWidget {
     this.loading = false,
     required this.bannerBuilder,
     required this.headerBuilder,
+    this.onGenreTap,
   });
 
   final ValueListenable<String> bannerStyle;
@@ -22,11 +24,25 @@ class HomeBannerHeader extends StatelessWidget {
   final Widget Function(String bannerId) bannerBuilder;
   final Widget Function(bool edgeBanner) headerBuilder;
 
+  /// Genre chip tap for the Anilife banner style (null genre = "All").
+  final void Function(String? genre)? onGenreTap;
+
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<String>(
     valueListenable: bannerStyle,
     builder: (context, bannerId, _) {
-      final header = headerBuilder(bannerId == BannerStyle.edgeId);
+      final anilife = bannerId == BannerStyle.anilifeId;
+      final baseHeader = headerBuilder(bannerId == BannerStyle.edgeId || anilife);
+      final header = anilife && onGenreTap != null
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                baseHeader,
+                const SizedBox(height: 8),
+                AnilifeGenreChips(onTap: onGenreTap!),
+              ],
+            )
+          : baseHeader;
       if (!hasHero && !loading) {
         return ColoredBox(color: AppColors.bg, child: header);
       }
