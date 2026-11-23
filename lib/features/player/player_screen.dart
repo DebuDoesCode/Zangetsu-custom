@@ -15,6 +15,7 @@ import 'package:screen_brightness/screen_brightness.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/cache/app_image_cache.dart';
+import '../../core/ui/banner_style.dart';
 import '../../core/ui/copy_playback_link.dart';
 import '../../core/di/injector.dart';
 import '../../core/metadata/title_logo_service.dart';
@@ -29,7 +30,6 @@ import '../../core/playback/external_player.dart';
 import '../../core/logging/app_logger.dart';
 import 'phone_playback_launch.dart';
 import 'episode_player_route.dart';
-import 'in_app_mini_player.dart';
 import 'player_engine_fallback.dart';
 import '../../core/download/download_manager.dart';
 import '../../core/download/download_record.dart';
@@ -90,6 +90,7 @@ part 'player_overlays.dart';
 part 'player_controls_overlay.dart';
 part 'player_seek_bar.dart';
 part 'player_controls_widgets.dart';
+part 'player_anilife_controls.dart';
 part 'player_episodes_panel.dart';
 part 'player_sheets.dart';
 
@@ -638,17 +639,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // home screen.
   String? _loadError;
 
-  // Android uses its activity window. iOS uses the mpv video texture.
+  // Picture-in-Picture (Android only; iOS has no PiP path with media_kit).
   // `floating` powers the manual button + the status poll; auto-PiP-on-leave is
   // done natively (MainActivity) because the plugin's OnLeavePiP only works on
   // Android 12+ and silently no-ops on older devices.
   final Floating _floating = Floating();
   static const MethodChannel _pipChannel = MethodChannel('zangetsu/pip');
-  static const _iosPipChannel = MethodChannel('zangetsu/ios_pip');
   bool _pipSupported = false; // device supports PiP + we're on Android
   bool _inPip = false; // currently rendering inside the PiP window
   StreamSubscription<PiPStatus>? _pipSub;
-  StreamSubscription<bool>? _iosPipPlaying;
   // Playing / video-size listeners that keep the PiP window's buttons and
   // aspect ratio current. PiP-only — they don't feed anything else.
   final List<StreamSubscription<dynamic>> _pipStateSubs = [];
@@ -703,11 +702,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       case PhonePlayerRoute.inApp:
         break;
     }
-    if (dockedPlayer.value == null) {
-      _initInApp();
-    } else {
-      unawaited(_initAfterClosingDock());
-    }
+    _initInApp();
     if (Platform.isAndroid && !sl<AppMode>().isTv && _followSensor) {
       _orientationTurns = const EventChannel('zangetsu/player_orientation')
           .receiveBroadcastStream()
@@ -873,7 +868,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_watchPageEnabled || _docked) return;
+    if (!_watchPageEnabled) return;
     final current = MediaQuery.orientationOf(context);
     if (_lastOrientation == null) {
       _lastOrientation = current;
@@ -960,7 +955,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _orientationApplied = false;
 
   void _applyOrientation() {
-    if (_orientationApplied || !mounted || _docked) return;
+    if (_orientationApplied || !mounted) return;
     _orientationApplied = true;
     SystemChrome.setPreferredOrientations(_orientationLock);
   }
@@ -1004,20 +999,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // which is worse than the thing this avoids.
       Future.delayed(const Duration(milliseconds: 600), _applyOrientation);
     });
-  }
-
-  Future<void> _initAfterClosingDock() async {
-    // This State may have been created during a build of the navigator.
-    await WidgetsBinding.instance.endOfFrame;
-    if (!mounted) return;
-    await PhoneNativePlayer.closeDockedPlayback();
-    final dock = dockedPlayer.value;
-    if (dock != null) {
-      dock.onClose();
-      await WidgetsBinding.instance.endOfFrame;
-      await playerRouteTeardownBarrier.waitUntilIdle();
-    }
-    if (mounted) _initInApp();
   }
 
   void _initInApp() {
@@ -1185,17 +1166,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// track the PiP status so the UI can collapse to video-only inside the
   /// floating window. Best-effort — any failure just leaves PiP disabled.
   Future<void> _setupPip() async {
-    if (Platform.isIOS && !sl<AppMode>().isTv) {
-      try {
-        final supported = await _iosPipChannel.invokeMethod<bool>('supported');
-        if (mounted && supported == true) setState(() => _pipSupported = true);
-      } on PlatformException {
-        // PiP is optional on this device.
-      } on MissingPluginException {
-        // This host has no iOS PiP bridge.
-      }
-      return;
-    }
     if (!Platform.isAndroid) return;
     try {
       final available = await _floating.isPipAvailable;
@@ -1221,11 +1191,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
             'pos=${_c.player.state.position.inSeconds}s',
           );
           setState(() => _inPip = inPip);
-          if (!inPip && _docked) {
-            SystemChrome.setPreferredOrientations(const [
-              DeviceOrientation.portraitUp,
-            ]);
-          }
         }
         // Re-push on entry. The stream listeners below only fire on CHANGE,
         // and playback usually starts before this async setup finishes — so
@@ -1287,110 +1252,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// Enter PiP immediately (the player's PiP button).
   Future<void> _enterPip() async {
     if (!_pipSupported) return;
-    if (Platform.isIOS) {
-      if (!_ready) return;
-      final id = _c.videoController.id.value;
-      if (id == null) return;
-      _iosPipChannel.setMethodCallHandler((call) async {
-        if (!mounted) return;
-        if (call.method == 'setPlaying' && call.arguments is bool) {
-          if (_c.player.state.playing != call.arguments) _c.togglePlay();
-        } else if (call.method == 'skip') {
-          final seconds = call.arguments;
-          if (seconds is num && seconds.isFinite) {
-            _c.seekBy(Duration(milliseconds: (seconds * 1000).round()));
-          }
-        } else if (call.method == 'stopped') {
-          await _iosPipPlaying?.cancel();
-          _iosPipPlaying = null;
-        }
-      });
-      try {
-        final started = await _iosPipChannel.invokeMethod<bool>('start', {
-          'textureId': id,
-          'playing': _c.player.state.playing,
-        });
-        if (mounted && started == true) {
-          await _iosPipPlaying?.cancel();
-          _iosPipPlaying = _c.player.stream.playing.listen((playing) {
-            _iosPipChannel
-                .invokeMethod<void>('playing', playing)
-                .catchError((_) {});
-          });
-        }
-      } on PlatformException {
-        // Playback can continue in the watch page.
-      }
-      return;
-    }
     try {
       await _floating.enable(
         const ImmediatePiP(aspectRatio: Rational.landscape()),
       );
     } catch (_) {}
-  }
-
-  bool _docked = false;
-
-  bool get _supportsMinimize =>
-      (Platform.isAndroid || Platform.isIOS) &&
-      !sl<AppMode>().isTv &&
-      sl<PlaybackPrefs>().inAppMiniPlayer &&
-      ModalRoute.of(context) is EpisodePlayerRoute;
-
-  VoidCallback? get _minimizeAction =>
-      _supportsMinimize && _ready && !_inPip && _c.state.active != null
-      ? _minimize
-      : null;
-
-  void _minimize() {
-    final route = ModalRoute.of(context);
-    if (route is! EpisodePlayerRoute ||
-        !route.isCurrent ||
-        !_ready ||
-        _c.state.active == null ||
-        _inPip) {
-      return;
-    }
-    final labels = context.l10n;
-    route.dock((video, restore) {
-      setState(() => _docked = true);
-      _stopAmbientSampler();
-      SystemChrome.setPreferredOrientations(const [
-        DeviceOrientation.portraitUp,
-      ]);
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-      return InAppMiniPlayer(
-        video: video,
-        entranceReady: _c.videoController.waitUntilFirstFrameRendered,
-        playing: _c.player.state.playing,
-        playingChanges: _c.player.stream.playing,
-        systemPipChanges: Platform.isAndroid && _pipSupported
-            ? _floating.pipStatusStream.map(
-                (status) => status == PiPStatus.enabled,
-              )
-            : null,
-        playPauseLabel: _c.player.state.playing ? labels.pause : labels.play,
-        playLabel: labels.play,
-        pauseLabel: labels.pause,
-        closeLabel: labels.close,
-        restoreLabel: labels.openingLayoutFullscreen,
-        onTogglePlayback: _c.togglePlay,
-        onClose: _leavePlayer,
-        onRestore: () {
-          _lastOrientation = MediaQuery.orientationOf(context);
-          setState(() => _docked = false);
-          _orientationApplied = false;
-          if (_presentation == PlayerPresentation.fullscreen) {
-            _applyOrientationWhenCovered();
-          } else {
-            _startAmbientSampler();
-          }
-          _applyPlayerSystemUi();
-          restore();
-        },
-      );
-    });
   }
 
   /// Open the native ExoPlayer activity, then leave this screen. Source errors
@@ -1460,11 +1326,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         engineFallback: _engineFallback,
         forceInitialResume: widget.engineRecovery,
         onEngineFallback: (failure) => _nativeEngineFailure = failure,
-        onDocked: () {
-          if (!mounted) return null;
-          final route = ModalRoute.of(context);
-          return route is EpisodePlayerRoute ? route.detachForDock() : null;
-        },
       );
       final failure = _nativeEngineFailure;
       if (mounted && failure != null) {
@@ -1953,10 +1814,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // DRM handoff, load failure) and once the user has confirmed a close.
   void _leavePlayer() {
     if (!mounted) return;
-    if (_docked) {
-      dockedPlayer.value = null;
-      return;
-    }
     final nav = Navigator.of(context);
     if (nav.canPop()) nav.pop();
   }
@@ -2043,11 +1900,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     sl<CastController>().removeListener(_onCastStateChanged);
     // Disarm auto-PiP so leaving the closed player can't trigger it, and drop
     // the handler so a stray window button can't reach a dead controller.
-    if (_pipSupported && Platform.isIOS) {
-      _iosPipPlaying?.cancel();
-      _iosPipChannel.setMethodCallHandler(null);
-      _iosPipChannel.invokeMethod<void>('stop').catchError((_) {});
-    } else if (_pipSupported) {
+    if (_pipSupported) {
       _pipChannel.setMethodCallHandler(null);
       _pipChannel.invokeMethod('setAutoPip', false);
     }
@@ -3090,7 +2943,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       onScreenshot: _captureScreenshot,
       sleepActive: _sleepActive,
       onSleep: _openSleepSheet,
-      onMinimize: _minimizeAction,
       onPip: _pipSupported ? _enterPip : null,
       onSwitchPlayer: _canSwitchToNative ? _switchToNativePlayer : null,
       ambientActive: sl<PlaybackPrefs>().ambientPlayer,
@@ -3435,8 +3287,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       onPrevious: () => _c.playPrevious(),
       onNext: () => _c.playNext(),
       onFullscreen: _enterFullscreen,
-      onMinimize: _minimizeAction,
-      onBack: _minimizeAction ?? _handleCloseRequest,
+      onBack: _handleCloseRequest,
       onServer: _openSourceSheet,
       onAudio: () => _openAudioSubsSheet(focus: AudioSubsFocus.audio),
       onSubtitles: () => _openAudioSubsSheet(focus: AudioSubsFocus.subtitles),
@@ -3965,7 +3816,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_docked) return _buildVideoSurface();
     final route = ModalRoute.of(context);
     // Callers that hand us a resolver (Continue Watching, history, search…)
     // need a visible instant "loading" state: the episode list is still on the
@@ -3982,8 +3832,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     }
     if (_chosenPlayer == PlaybackPrefs.androidPlayerId &&
-        ((route is EpisodePlayerRoute && route.nativeHandoff) ||
-            widget.onEngineChange != null)) {
+        (route is NativePlayerHandoffRoute || widget.onEngineChange != null)) {
       return const SizedBox.shrink();
     }
     // A Watch Together join that couldn't resolve the room's source — explain
@@ -4547,7 +4396,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           onSettings: _openSettings,
                           barConfig: _barConfig,
                           onZoom: _cycleFit,
-                          onMinimize: _minimizeAction,
                           onPip: _pipSupported ? _enterPip : null,
                           onSwitchPlayer: _canSwitchToNative
                               ? _switchToNativePlayer
@@ -4787,14 +4635,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // 'direct' pops straight through (canPop true); the other two are vetoed
     // and routed to _handleCloseRequest. This catches the back button, the
     // system/gesture back, and the cast-panel back — all of which maybePop().
-    // Back goes from fullscreen to the watch page, then docks eligible
-    // playback on the mobile app.
+    // Fullscreen with the watch page enabled intercepts first: Back drops to
+    // the watch page instead of leaving the player.
     return PopScope(
       canPop:
-          !(_presentation == PlayerPresentation.fullscreen &&
-              _watchPageEnabled) &&
-          !_supportsMinimize &&
-          sl<PlaybackPrefs>().closeConfirmation == 'direct',
+          _presentation == PlayerPresentation.fullscreen && _watchPageEnabled
+          ? false
+          : sl<PlaybackPrefs>().closeConfirmation == 'direct',
       onPopInvokedWithResult: (didPop, _) {
         AppLogger.instance.log(
           '[player-route] pop didPop=$didPop loading=${_c.state.loadingSources} '
@@ -4807,12 +4654,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _enterWatchPage();
           return;
         }
-        final minimize = _minimizeAction;
-        if (minimize != null) {
-          minimize();
-        } else {
-          _handleCloseRequest();
-        }
+        _handleCloseRequest();
       },
       child: scaffold,
     );

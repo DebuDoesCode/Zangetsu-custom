@@ -31,7 +31,6 @@ class _ControlsOverlay extends StatelessWidget {
     required this.megaSkipSeconds,
     required this.onMegaSkip,
     this.onPip,
-    this.onMinimize,
     this.onSwitchPlayer,
     required this.ambientActive,
     required this.onAmbientToggle,
@@ -78,7 +77,6 @@ class _ControlsOverlay extends StatelessWidget {
   final bool megaSkipEnabled; // MegaSkip pill above the seek bar
   final int megaSkipSeconds;
   final VoidCallback onMegaSkip;
-  final VoidCallback? onMinimize;
   final VoidCallback? onPip; // null = PiP unsupported (hide the button)
   final VoidCallback? onSwitchPlayer; // null = no other engine to switch to
   final bool
@@ -110,7 +108,6 @@ class _ControlsOverlay extends StatelessWidget {
       sleepActive: sleepActive,
       onSleep: onSleep,
       onPip: onPip,
-      onMinimize: onMinimize,
       onSwitchPlayer: onSwitchPlayer,
       ambientActive: ambientActive,
       onAmbientToggle: onAmbientToggle,
@@ -132,7 +129,6 @@ class _ControlsOverlay extends StatelessWidget {
     required bool sleepActive,
     required VoidCallback onSleep,
     required VoidCallback? onPip,
-    VoidCallback? onMinimize,
     required VoidCallback? onSwitchPlayer,
     required bool ambientActive,
     required VoidCallback onAmbientToggle,
@@ -242,15 +238,6 @@ class _ControlsOverlay extends StatelessWidget {
                           onSleep();
                         },
                       ),
-                      if (onMinimize != null)
-                        _MoreRow(
-                          icon: Icons.close_fullscreen_rounded,
-                          label: 'Minimize player',
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            onMinimize();
-                          },
-                        ),
                       if (onPip != null)
                         _MoreRow(
                           icon: Icons.picture_in_picture_alt_rounded,
@@ -464,9 +451,105 @@ class _ControlsOverlay extends StatelessWidget {
     ];
   }
 
+  /// Anilife-style bottom row: lock on the left, labelled pills on the right
+  /// (Episodes, Subtitles, then every other control from the user's layout as
+  /// an icon pill, then ⋮ More and Settings). Nothing from the saved layout
+  /// is dropped, so every control stays reachable.
+  Widget _anilifeBar(BuildContext context) {
+    final labelled = <Widget>[];
+    final icons = <Widget>[];
+    final seen = <String>{};
+    for (final id in [...barConfig.left, ...barConfig.right]) {
+      if (id == 'more' || !seen.add(id)) continue;
+      final spec = _specFor(context, id);
+      if (spec == null) continue;
+      final label = switch (id) {
+        'episodes' => 'Episodes',
+        'tracks' => 'Subtitles',
+        _ => null,
+      };
+      final pill = _AnilifePill(
+        icon: spec.$1,
+        label: label,
+        tooltip: spec.$2,
+        onTap: spec.$3,
+      );
+      (label != null ? labelled : icons).add(pill);
+    }
+    // Cast and the stats toggle default to the top bar; Anilife keeps them
+    // down here with the rest.
+    if (barConfig.top.contains('cast') && Platform.isAndroid) {
+      icons.add(
+        AnimatedBuilder(
+          animation: sl<CastController>(),
+          builder: (context, _) {
+            final castCtrl = sl<CastController>();
+            if (!castCtrl.castSupported) return const SizedBox.shrink();
+            return _AnilifePill(
+              icon: castCtrl.state == CastState.connected
+                  ? Icons.cast_connected
+                  : Icons.cast,
+              tooltip: context.l10n.cast,
+              onTap: () => castCtrl.pickDevice(),
+            );
+          },
+        ),
+      );
+    }
+    if (barConfig.top.contains('info') && onInfo != null) {
+      icons.add(
+        _AnilifePill(
+          icon: Icons.info_outline_rounded,
+          tooltip: context.l10n.playbackStats,
+          onTap: onInfo!,
+        ),
+      );
+    }
+    final pills = <Widget>[
+      ...labelled,
+      ...icons,
+      _AnilifePill(
+        icon: Icons.more_vert_rounded,
+        tooltip: 'More',
+        onTap: () => _showMore(context),
+      ),
+      _AnilifePill(
+        icon: Icons.settings_rounded,
+        label: 'Settings',
+        onTap: onSettings,
+      ),
+    ];
+    return Row(
+      children: [
+        _AnilifePill(
+          icon: Icons.lock_outline_rounded,
+          tooltip: context.l10n.lockControls,
+          onTap: onLock,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            reverse: true,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < pills.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 8),
+                  pills[i],
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = controller;
+    final anilife = _anilifePlayerStyle;
     final ep = c.currentEpisode;
     final epNum = ep.number?.toInt() ?? state.currentIndex + 1;
     // The episode's own name, but only when it's more than a generic
@@ -646,7 +729,10 @@ class _ControlsOverlay extends StatelessWidget {
                   // Whatever the user put up here, in their order. Cast and
                   // the ⓘ stats toggle live here by default; anything else in
                   // the registry can be moved up in Settings.
-                  ..._topButtons(context, barConfig.top),
+                  if (anilife)
+                    _AnilifeEndsAtPill(controller: c)
+                  else
+                    ..._topButtons(context, barConfig.top),
                   // Sleep timer armed — a visible accent moon; tap to adjust or
                   // cancel. Only shown while a timer / end-of-episode is set,
                   // and only when Sleep isn't already placed somewhere, or an
@@ -664,6 +750,7 @@ class _ControlsOverlay extends StatelessWidget {
                   // copy up here just split the same action across two places.
                   // Lock stays: it's the one control you want reachable without
                   // looking down at the bar you're about to hide.
+                  if (!anilife)
                   IconButton(
                     icon: const Icon(
                       Icons.lock_open_rounded,
@@ -672,6 +759,7 @@ class _ControlsOverlay extends StatelessWidget {
                     tooltip: context.l10n.lockControls,
                     onPressed: onLock,
                   ),
+                  if (!anilife)
                   IconButton(
                     icon: const Icon(
                       Icons.settings_rounded,
@@ -712,6 +800,17 @@ class _ControlsOverlay extends StatelessWidget {
                 ),
                 const SizedBox(width: 24),
               ],
+              if (anilife) ...[
+                _TransportButton(
+                  icon: Icons.fast_rewind_rounded,
+                  label: 'Back 10 seconds',
+                  onTap: () {
+                    c.seekBy(const Duration(seconds: -10));
+                    onInteract();
+                  },
+                ),
+                const SizedBox(width: 24),
+              ],
               StreamBuilder<int?>(
                 stream: c.player.stream.width,
                 initialData: c.player.state.width,
@@ -747,12 +846,26 @@ class _ControlsOverlay extends StatelessWidget {
                         stream: c.player.stream.playing,
                         builder: (context, snap) {
                           final playing = snap.data ?? c.player.state.playing;
-                          return _AnimatedPlayPause(
+                          final btn = _AnimatedPlayPause(
                             playing: playing,
                             onTap: () {
                               c.togglePlay();
                               onInteract();
                             },
+                          );
+                          if (!anilife) return btn;
+                          return DecoratedBox(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.9),
+                                width: 2,
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(3),
+                              child: btn,
+                            ),
                           );
                         },
                       );
@@ -760,6 +873,17 @@ class _ControlsOverlay extends StatelessWidget {
                   );
                 },
               ),
+              if (anilife) ...[
+                const SizedBox(width: 24),
+                _TransportButton(
+                  icon: Icons.fast_forward_rounded,
+                  label: 'Forward 10 seconds',
+                  onTap: () {
+                    c.seekBy(const Duration(seconds: 10));
+                    onInteract();
+                  },
+                ),
+              ],
               if (multiEpisode) ...[
                 const SizedBox(width: 24),
                 _TransportButton(
@@ -820,10 +944,15 @@ class _ControlsOverlay extends StatelessWidget {
                           // MegaSkip — manual jump-forward, riding the timestamp's
                           // line rather than a row of its own above it.
                           trailing: megaSkipEnabled
-                              ? _MegaSkipPill(
-                                  seconds: megaSkipSeconds,
-                                  onTap: onMegaSkip,
-                                )
+                              ? (anilife
+                                    ? _AnilifeSkipPill(
+                                        seconds: megaSkipSeconds,
+                                        onTap: onMegaSkip,
+                                      )
+                                    : _MegaSkipPill(
+                                        seconds: megaSkipSeconds,
+                                        onTap: onMegaSkip,
+                                      ))
                               : null,
                         );
                       },
@@ -834,6 +963,9 @@ class _ControlsOverlay extends StatelessWidget {
                     // another on the right. Two groups rather than seven floating
                     // chips — the split reads at a glance, and every button is the
                     // same width so nothing shifts as the video changes.
+                    if (anilife)
+                      _anilifeBar(context)
+                    else
                     LayoutBuilder(
                       builder: (context, constraints) {
                         // Rendered from the user's saved arrangement rather than
