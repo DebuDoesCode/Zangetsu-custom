@@ -38,7 +38,7 @@ class _AnilifeEndsAtPill extends StatelessWidget {
         final now = DateTime.now();
         final ends = now.add(remaining.isNegative ? Duration.zero : remaining);
         return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
           decoration: BoxDecoration(
             color: Colors.black.withValues(alpha: 0.45),
             borderRadius: BorderRadius.circular(22),
@@ -48,7 +48,7 @@ class _AnilifeEndsAtPill extends StatelessWidget {
             '${_fmt(now)} \u2014 Ends at ${_fmt(ends)}',
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 15,
+              fontSize: 12.5,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -70,19 +70,19 @@ class _AnilifeSkipPill extends StatelessWidget {
     return Material(
       color: Colors.black.withValues(alpha: 0.25),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: Colors.white, width: 2),
+        borderRadius: BorderRadius.circular(10),
+        side: const BorderSide(color: Colors.white, width: 1.5),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           child: Text(
             '+${seconds}S',
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 17,
+              fontSize: 13,
               fontWeight: FontWeight.w800,
               letterSpacing: 0.3,
             ),
@@ -124,19 +124,19 @@ class _AnilifePill extends StatelessWidget {
             onTap: onTap,
             child: Padding(
               padding: hasLabel
-                  ? const EdgeInsets.symmetric(horizontal: 16, vertical: 11)
-                  : const EdgeInsets.all(11),
+                  ? const EdgeInsets.symmetric(horizontal: 12, vertical: 7)
+                  : const EdgeInsets.all(8),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icon, color: Colors.white, size: 24),
+                  Icon(icon, color: Colors.white, size: 19),
                   if (hasLabel) ...[
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Text(
                       label!,
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 16,
+                        fontSize: 13,
                         fontWeight: FontWeight.w600,
                       ),
                     ),

@@ -535,7 +535,7 @@ class _ControlsOverlay extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 for (var i = 0; i < pills.length; i++) ...[
-                  if (i > 0) const SizedBox(width: 8),
+                  if (i > 0) const SizedBox(width: 6),
                   pills[i],
                 ],
               ],
